@@ -1,0 +1,80 @@
+/**
+ * Design tokens — Tinkercad Web Design System palette.
+ * Lower weight = lighter. Semantic weights: dark (800), med (600), light (300), xlight (50).
+ * Legacy SCSS variables in _variables.scss bridge to these without renaming $ tokens.
+ * Breakpoints remain SCSS-only ($screen-*).
+ */
+:root {
+  /* blues — 950 (darkest) → 50 (xlight) */
+  --blue-950: #052080;
+  --blue-900: #053197;
+  --blue-800: #0446AF; /* dark */
+  --blue-700: #035CC5;
+  --blue-600: #0175DA; /* med */
+  --blue-500: #018BE8;
+  --blue-400: #299DEB;
+  --blue-300: #4BB2F1; /* light */
+  --blue-200: #6EC7F6;
+  --blue-100: #B0ECFF;
+  --blue-50: #CFF1FC; /* xlight */
+
+  /* greens */
+  --green-950: #00521B;
+  --green-900: #006627;
+  --green-800: #047932; /* dark */
+  --green-700: #038834;
+  --green-600: #009737; /* med */
+  --green-500: #1DAB51;
+  --green-400: #2FB958;
+  --green-300: #42C658; /* light */
+  --green-200: #67DE67;
+  --green-100: #ABF389;
+  --green-50: #D9FEC8; /* xlight */
+
+  /* purples */
+  --purple-950: #4A0080;
+  --purple-900: #5C05A3;
+  --purple-800: #7306C6; /* dark */
+  --purple-700: #8902F7;
+  --purple-600: #9238FF; /* med */
+  --purple-500: #9F56FF;
+  --purple-400: #A362FE;
+  --purple-300: #BD8AFF; /* light */
+  --purple-200: #CC9FFF;
+  --purple-100: #E6C7FF;
+  --purple-50: #F5E0FF; /* xlight */
+
+  /* reds */
+  --red-950: #A30505;
+  --red-900: #B61108;
+  --red-800: #C61C07; /* dark */
+  --red-700: #D32D03;
+  --red-600: #E73205; /* med */
+  --red-500: #FB4A12;
+  --red-400: #FF650F;
+  --red-300: #FC822A; /* light */
+  --red-200: #FFA24D;
+  --red-100: #FFD59E;
+  --red-50: #FFE6BD; /* xlight */
+
+  /* neutrals */
+  --neutral-950: #000000;
+  --neutral-900: #1B1A1A;
+  --neutral-800: #282727; /* dark */
+  --neutral-700: #414651;
+  --neutral-600: #646E80; /* med */
+  --neutral-500: #808893;
+  --neutral-400: #939CA8;
+  --neutral-300: #A6AEB9; /* light */
+  --neutral-200: #D0D5DB;
+  --neutral-100: #E2E4E7;
+  --neutral-50: #F2F3F5; /* xlight */
+  --neutral-25: #F9FAFB; /* xxlight */
+  --white: #FFFFFF;
+
+  /* legacy (_legacy-variables.scss, editor) */
+  --highlight: var(--blue-400);
+  --highlight-hover: var(--blue-600);
+  --editor-bg-2: var(--neutral-50);
+  --editor-bg-2-disabled: var(--neutral-100);
+}

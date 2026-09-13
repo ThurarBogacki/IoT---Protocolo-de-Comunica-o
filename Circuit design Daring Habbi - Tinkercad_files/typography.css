@@ -1,0 +1,219 @@
+/**
+ * Typography tokens and utility classes (.heading-*, .text-p-*, .text-ui-*).
+ * New code should prefer these directly; legacy SCSS mixins in _typography.scss
+ * bridge to these for backward compatibility during migration.
+ * Responsive rules use 980px to match $screen-medium in _variables.scss.
+ */
+:root {
+  --font-family-legend: 'artifakt-legend', sans-serif;
+  --font-family-element: 'artifakt-element', sans-serif;
+  --font-weight-heading-bold: 700;
+  --font-weight-heading-thin: 500;
+  --font-weight-body: 500;
+  --font-weight-ui-bold: 700;
+  --letter-spacing-default: 0;
+
+  /* headings */
+  --font-size-h1: 48px;
+  --line-height-h1: 58px;
+  --font-size-h2: 32px;
+  --line-height-h2: 38px;
+  --font-size-h2-thin: 28px;
+  --line-height-h2-thin: 36px;
+  --font-size-h3: 24px;
+  --line-height-h3: 29px;
+  --font-size-h4: 20px;
+  --line-height-h4: 30px;
+  --font-size-h5: 16px;
+  --line-height-h5: 26px;
+
+  /* body */
+  --font-size-p-body: 16px;
+  --line-height-p-body: 24px;
+  --font-size-p-small: 14px;
+  --line-height-p-small: 21px;
+
+  /* UI labels */
+  --font-size-ui-12: 12px;
+  --line-height-ui-12: 16px;
+  --font-size-ui-14: 14px;
+  --line-height-ui-14: 22px;
+  --font-size-ui-15: 15px;
+  --line-height-ui-15: 1.1;
+  --font-size-ui-16: 16px;
+  --line-height-ui-16: 32px;
+  --font-size-ui-18: 18px;
+  --line-height-ui-18: 32px;
+}
+
+.heading-h1 {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h1);
+  line-height: var(--line-height-h1);
+}
+
+.heading-h1-responsive {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h1);
+  line-height: var(--line-height-h1);
+}
+
+@media (max-width: 980px) {
+  .heading-h1-responsive {
+    font-size: var(--font-size-h2);
+    line-height: var(--line-height-h2);
+  }
+}
+
+.heading-h2 {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+}
+
+.heading-h2-responsive {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+}
+
+@media (max-width: 980px) {
+  .heading-h2-responsive {
+    font-size: var(--font-size-h3);
+    line-height: var(--line-height-h3);
+  }
+}
+
+.heading-h2-thin {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-thin);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h2-thin);
+  line-height: var(--line-height-h2-thin);
+}
+
+.heading-h3 {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+}
+
+.heading-h3-responsive {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+}
+
+@media (max-width: 980px) {
+  .heading-h3-responsive {
+    font-size: var(--font-size-h4);
+    line-height: var(--line-height-h4);
+  }
+}
+
+.heading-h3-responsive-thin {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-body);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+}
+
+@media (max-width: 980px) {
+  .heading-h3-responsive-thin {
+    font-size: var(--font-size-h4);
+    line-height: var(--line-height-h4);
+  }
+}
+
+.heading-h4 {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h4);
+  line-height: var(--line-height-h4);
+}
+
+.heading-h4-thin {
+  font-family: var(--font-family-legend);
+  font-weight: var(--font-weight-heading-thin);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h4);
+  line-height: var(--line-height-h4);
+}
+
+.heading-h5 {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-ui-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-h5);
+  line-height: var(--line-height-h5);
+}
+
+.text-p-body {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-body);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-p-body);
+  line-height: var(--line-height-p-body);
+}
+
+.text-p-small {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-body);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-p-small);
+  line-height: var(--line-height-p-small);
+}
+
+.text-ui-12 {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-ui-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-ui-12);
+  line-height: var(--line-height-ui-12);
+}
+
+.text-ui-14 {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-ui-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-ui-14);
+  line-height: var(--line-height-ui-14);
+}
+
+.text-ui-15 {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-ui-bold);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-ui-15);
+  line-height: var(--line-height-ui-15);
+}
+
+.text-ui-16 {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-body);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-ui-16);
+  line-height: var(--line-height-ui-16);
+}
+
+.text-ui-18 {
+  font-family: var(--font-family-element);
+  font-weight: var(--font-weight-body);
+  letter-spacing: var(--letter-spacing-default);
+  font-size: var(--font-size-ui-18);
+  line-height: var(--line-height-ui-18);
+}
