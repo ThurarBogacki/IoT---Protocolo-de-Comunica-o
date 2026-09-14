@@ -1,5 +1,6 @@
 #include <SoftwareSerial.h>
 
+#define MAX_BUFFER_SIZE 64
 SoftwareSerial portaSerial(10,11);
 
 void setup()
@@ -42,12 +43,39 @@ void loop()
         sendFloat(3.1415, errorMask);
         break;
 
-      case '4':
+        case '4':
         {
-          Serial.println("\n[TEST] Sending DATA: \"IoT\"");
-          errorMask = promptErrorInjection();
-          uint8_t mensagem[] = {'I', 'o', 'T'};
-          sendData(mensagem, 3, errorMask);
+          Serial.println(F("Informe o tamanho da mensagem (ex: 3):"));
+          while (Serial.available() == 0) { }
+          uint16_t sizeInput = Serial.parseInt(); 
+          
+          while (Serial.available() > 0) { Serial.read(); }
+
+          if (sizeInput <= 0 || sizeInput > MAX_BUFFER_SIZE) {
+            Serial.println(F("Tamanho invalido!"));
+            break;
+          }
+
+          Serial.println(F("Informe a mensagem e aperte Enviar:"));
+          
+          while (Serial.available() < sizeInput) {
+       
+          }
+
+          uint8_t mensagem[MAX_BUFFER_SIZE];
+          
+          for(uint16_t i = 0; i < sizeInput; i++) {
+              mensagem[i] = Serial.read();
+          }
+
+          delay(20);
+          while (Serial.available() > 0) {
+            Serial.read();
+          }
+
+          Serial.println(F("\n[TEST] Sending DATA:"));
+          errorMask = promptErrorInjection(); 
+          sendData(mensagem, sizeInput, errorMask);
         }
         break;
 
@@ -177,10 +205,6 @@ bool sendFloat(float value, uint8_t maskError){
     Serial.print(tentativa);
     Serial.println(" de 3...");
     
-    Serial.print("[TX] Tentativa ");
-    Serial.print(tentativa);
-    Serial.println(" de 3...");
-    
   	portaSerial.write(0xAA);
   	portaSerial.write(tipo);
   	portaSerial.write(tamanho);
@@ -224,10 +248,12 @@ bool sendFloat(float value, uint8_t maskError){
 }
 
 
-bool sendData(uint8_t *data, uint8_t size, uint8_t maskError){
+bool sendData(uint8_t *data, uint16_t size, uint8_t maskError){
     uint8_t tipo = 0x04;
-  
-    uint8_t checksum = tipo ^ size ^ maskError;
+  	
+  	uint8_t sizeAlto = (size >> 8) & 0xFF;
+    uint8_t sizeBaixo = size & 0xFF;
+    uint8_t checksum = tipo ^ sizeAlto ^ sizeBaixo ^ maskError;
   
     for(uint8_t i = 0; i < size; i++){
         checksum ^= data[i];
@@ -240,7 +266,8 @@ bool sendData(uint8_t *data, uint8_t size, uint8_t maskError){
       
       portaSerial.write(0xAA);
       portaSerial.write(tipo);
-      portaSerial.write(size);
+      portaSerial.write(sizeAlto);
+      portaSerial.write(sizeBaixo);
 
         for (uint8_t i = 0; i < size; i++) {
             portaSerial.write(data[i]);

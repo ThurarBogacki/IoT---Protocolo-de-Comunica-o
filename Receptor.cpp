@@ -1,6 +1,5 @@
 #include <SoftwareSerial.h>
 
-
 SoftwareSerial portaSerial(10, 11);
 
 void setup()
