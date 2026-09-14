@@ -1,0 +1,540 @@
+\documentclass[12pt]{article}
+
+\usepackage{sbc-template}
+\usepackage{graphicx,url}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{booktabs,tabularx,array}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+\renewcommand{\arraystretch}{1.15}
+
+\sloppy
+
+\title{Trabalho 1 - Internet das Coisas - Implementação de um Protocolo de Comunicação Serial}
+
+\author{Arthur Bogacki Veríssimo\inst{1}, Diego Ribeiro Chaves\inst{1},\\
+Gabriel Souza Baggio\inst{1}}
+
+\address{Centro de Tecnologia - Universidade Federal de Santa Maria - RS, Brasil
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{resumo}
+Este trabalho descreve o projeto e a implementação de um protocolo de comunicação entre dois Arduinos por meio de uma porta serial emulada em software (biblioteca \texttt{SoftwareSerial}). O protocolo transmite dados dos tipos \emph{byte}, \emph{word}, \emph{float} e dados de tamanho definido pelo usuário, organizados em quadros com identificação de tipo, número de sequência, campo de tamanho e verificação de integridade por CRC-8. A confiabilidade é garantida por um mecanismo de repetição automática do tipo \emph{Stop-and-Wait} (ACK, NACK, \emph{timeout} e até três tentativas), com descarte de mensagens duplicadas no receptor. O transmissor permite provocar falhas de forma controlada, e os testes demonstram a recuperação do protocolo diante de quadros corrompidos, quadros perdidos, confirmações perdidas e ausência do receptor.
+\end{resumo}
+
+\section{Introdução}
+
+O objetivo do trabalho é desenvolver um protocolo próprio de comunicação serial entre dois Arduinos, capaz de transmitir diferentes tipos de dados, detectar falhas na comunicação e garantir que as mensagens sejam corretamente recebidas. O sistema é composto por dois dispositivos com papéis fixos:
+
+\begin{itemize}
+  \item \textbf{Transmissor} (\texttt{Transmissor.cpp}): recebe comandos do usuário pelo Monitor Serial, monta as mensagens, envia-as ao receptor e informa o resultado de cada transmissão;
+  \item \textbf{Receptor} (\texttt{Receptor.cpp}): valida as mensagens recebidas, responde com confirmação positiva ou negativa e apresenta os dados no seu Monitor Serial.
+\end{itemize}
+
+A comunicação entre as placas utiliza a biblioteca \texttt{SoftwareSerial}, que emula uma porta serial em pinos digitais, deixando a porta serial nativa (\texttt{Serial}) livre para a interação com o usuário~\cite{arduino-softwareserial}. A Tabela~\ref{tab:ligacao} apresenta a ligação física entre as placas, na qual o pino de transmissão de cada Arduino é conectado ao pino de recepção do outro.
+
+\begin{table}[!htb]
+\centering
+\caption{Ligação física entre os Arduinos (\texttt{SoftwareSerial portaSerial(10, 11)}).}
+\label{tab:ligacao}
+\begin{tabular}{ccc}
+\toprule
+\textbf{Arduino transmissor} & & \textbf{Arduino receptor} \\
+\midrule
+Pino 11 (TX) & $\rightarrow$ & Pino 10 (RX) \\
+Pino 10 (RX) & $\leftarrow$ & Pino 11 (TX) \\
+GND & --- & GND \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+O restante do documento está organizado da seguinte forma: a Seção~\ref{sec:protocolo} apresenta a visão geral do protocolo; a Seção~\ref{sec:estrutura} detalha a estrutura das mensagens; a Seção~\ref{sec:funcionamento} descreve o funcionamento da comunicação; a Seção~\ref{sec:confiabilidade} explica os mecanismos de confiabilidade; a Seção~\ref{sec:decisoes} reúne as decisões de projeto; as Seções~\ref{sec:testes} e~\ref{sec:resultados} apresentam os testes realizados e os resultados obtidos; e a Seção~\ref{sec:conclusao} conclui o trabalho.
+
+\section{Visão Geral do Protocolo}
+\label{sec:protocolo}
+
+O protocolo foi organizado em três camadas, de modo que cada parte do código tenha uma responsabilidade bem definida:
+
+\begin{enumerate}
+  \item \textbf{API do protocolo}: as funções \texttt{sendByte}, \texttt{sendWord}, \texttt{sendFloat} e \texttt{sendData}, que seguem exatamente os protótipos exigidos no enunciado e convertem o valor recebido em uma sequência de bytes (\emph{payload});
+  \item \textbf{Camada de enlace}: responsável por montar e validar os quadros, calcular o CRC-8, controlar os números de sequência e executar a retransmissão automática;
+  \item \textbf{Interface com o usuário}: menus no Monitor Serial do transmissor para escolha do tipo de dado, do valor e da falha a ser simulada, e mensagens de diagnóstico em ambos os dispositivos.
+\end{enumerate}
+
+Todas as funções de envio retornam \texttt{true} somente quando o receptor confirma a mensagem, e \texttt{false} quando a entrega não pôde ser confirmada. Os parâmetros de operação do protocolo estão resumidos na Tabela~\ref{tab:parametros}.
+
+\begin{table}[!htb]
+\centering
+\caption{Parâmetros de operação do protocolo.}
+\label{tab:parametros}
+\small
+\begin{tabularx}{\linewidth}{llcL}
+\toprule
+\textbf{Parâmetro} & \textbf{Valor} & \textbf{Uso} & \textbf{Função} \\
+\midrule
+\texttt{BAUD\_RATE} & 4800 bps (8N1) & TX e RX & Taxa das portas serial e \texttt{SoftwareSerial} \\
+\texttt{TAMANHO\_MAX\_DATA} & 64 bytes & TX e RX & Tamanho máximo do \emph{payload} de dados variáveis \\
+\texttt{MAX\_TENTATIVAS} & 3 & TX & Número máximo de envios de uma mesma mensagem \\
+\texttt{TIMEOUT\_RESPOSTA\_MS} & 500 ms & TX & Tempo máximo de espera por ACK ou NACK \\
+\texttt{ESPERA\_RETRANSMISSAO\_MS} & 200 ms & TX & Intervalo antes de uma retransmissão \\
+\texttt{TIMEOUT\_ENTRE\_BYTES\_MS} & 50 ms & RX & Intervalo máximo entre bytes de um quadro \\
+\texttt{TIMEOUT\_LINHA\_MS} & 100 ms & TX & Silêncio que encerra uma entrada digitada \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Estrutura das Mensagens}
+\label{sec:estrutura}
+
+\subsection{Quadro de dados}
+
+Toda mensagem enviada pelo transmissor, independentemente do tipo de dado, utiliza o mesmo formato de quadro, ilustrado na Tabela~\ref{tab:layout} e detalhado na Tabela~\ref{tab:campos}. Os campos com mais de um byte são transmitidos em ordem \emph{big-endian} (byte mais significativo primeiro).
+
+\begin{table}[!htb]
+\centering
+\caption{Disposição dos campos do quadro de dados ($N$ = tamanho do \emph{payload}).}
+\label{tab:layout}
+\small
+\begin{tabular}{|c|c|c|c|c|c|c|}
+\hline
+\texttt{0xAA} & TIPO & SEQ & TAM\_H & TAM\_L & PAYLOAD & CRC-8 \\
+\hline
+1 byte & 1 byte & 1 byte & 1 byte & 1 byte & $N$ bytes & 1 byte \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[!htb]
+\centering
+\caption{Descrição dos campos do quadro de dados.}
+\label{tab:campos}
+\small
+\begin{tabularx}{\linewidth}{lllL}
+\toprule
+\textbf{Posição} & \textbf{Campo} & \textbf{Tamanho} & \textbf{Conteúdo} \\
+\midrule
+0 & Início & 1 byte & Valor fixo \texttt{0xAA}, que marca o início de um quadro \\
+1 & Tipo & 1 byte & Identificador do tipo de dado (Tabela~\ref{tab:tipos}) \\
+2 & Sequência & 1 byte & Número da mensagem (0 a 255), incrementado a cada nova mensagem e mantido nas retransmissões \\
+3--4 & Tamanho & 2 bytes & Quantidade $N$ de bytes do \emph{payload} \\
+5 a $4+N$ & \emph{Payload} & $N$ bytes & Dado codificado conforme o tipo \\
+$5+N$ & CRC-8 & 1 byte & Código de verificação calculado sobre os campos Tipo, Sequência, Tamanho e \emph{Payload} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Tipos de dados}
+
+O campo Tipo permite que o receptor identifique como interpretar o \emph{payload}. Cada tipo possui um tamanho esperado, verificado pelo receptor antes da leitura dos dados, conforme a Tabela~\ref{tab:tipos}.
+
+\begin{table}[!htb]
+\centering
+\caption{Tipos de dados suportados e codificação do \emph{payload}.}
+\label{tab:tipos}
+\small
+\begin{tabularx}{\linewidth}{cllcL}
+\toprule
+\textbf{Código} & \textbf{Tipo} & \textbf{Função da API} & \textbf{$N$} & \textbf{Codificação} \\
+\midrule
+\texttt{0x01} & \emph{byte} & \texttt{sendByte(uint8\_t)} & 1 & O próprio valor \\
+\texttt{0x02} & \emph{word} & \texttt{sendWord(uint16\_t)} & 2 & Byte alto seguido do byte baixo \\
+\texttt{0x03} & \emph{float} & \texttt{sendFloat(float)} & 4 & Os 32 bits do padrão IEEE 754, em \emph{big-endian} \\
+\texttt{0x04} & dados & \texttt{sendData(const uint8\_t*, uint16\_t)} & 1--64 & Os bytes na ordem original \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Quadro de resposta}
+
+Para cada quadro recebido, o receptor responde com um quadro de dois bytes (Tabela~\ref{tab:resposta}). Os códigos escolhidos correspondem aos caracteres de controle ACK e NAK da tabela ASCII. O número de sequência na resposta permite ao transmissor verificar que a confirmação se refere à mensagem atual.
+
+\begin{table}[!htb]
+\centering
+\caption{Quadro de resposta do receptor.}
+\label{tab:resposta}
+\small
+\begin{tabularx}{\linewidth}{lcL}
+\toprule
+\textbf{Campo} & \textbf{Tamanho} & \textbf{Conteúdo} \\
+\midrule
+Código & 1 byte & \texttt{0x06} (ACK): quadro válido; \texttt{0x15} (NACK): quadro inválido \\
+Sequência & 1 byte & Número de sequência do quadro ao qual a resposta se refere \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Exemplos de quadros}
+
+A Tabela~\ref{tab:exemplos} mostra os bytes efetivamente transmitidos para uma chamada de cada função, com números de sequência ilustrativos. No caso do \emph{float}, o valor 3,1415 corresponde à representação IEEE 754 \texttt{0x40490E56}.
+
+\begin{table}[!htb]
+\centering
+\caption{Exemplos de quadros transmitidos (valores em hexadecimal).}
+\label{tab:exemplos}
+\small
+\begin{tabular}{llll}
+\toprule
+\textbf{Chamada} & \textbf{SEQ} & \textbf{Quadro transmitido} & \textbf{Resposta (ACK)} \\
+\midrule
+\texttt{sendByte(150)} & \texttt{04} & \texttt{AA 01 04 00 01 96 C4} & \texttt{06 04} \\
+\texttt{sendWord(1024)} & \texttt{05} & \texttt{AA 02 05 00 02 04 00 3D} & \texttt{06 05} \\
+\texttt{sendFloat(3.1415)} & \texttt{06} & \texttt{AA 03 06 00 04 40 49 0E 56 22} & \texttt{06 06} \\
+\texttt{sendData(\textquotedbl IoT\textquotedbl, 3)} & \texttt{07} & \texttt{AA 04 07 00 03 49 6F 54 B1} & \texttt{06 07} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Sobrecarga e tempo de transmissão}
+
+Cada quadro possui 6 bytes de controle além do \emph{payload}. Na configuração 8N1, cada byte ocupa 10 bits na linha (início, 8 bits de dados e parada); portanto, a 4800 bps, cada byte leva aproximadamente 2,08~ms para ser transmitido. A Tabela~\ref{tab:tempos} apresenta o tamanho dos quadros e os tempos teóricos de transmissão.
+
+\begin{table}[!htb]
+\centering
+\caption{Tamanho dos quadros e tempo teórico de transmissão a 4800 bps.}
+\label{tab:tempos}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Tipo} & \textbf{\emph{Payload}} & \textbf{Quadro} & \textbf{Tempo do quadro} & \textbf{Quadro + resposta} \\
+\midrule
+\emph{byte} & 1 byte & 7 bytes & 14,6 ms & 18,8 ms \\
+\emph{word} & 2 bytes & 8 bytes & 16,7 ms & 20,8 ms \\
+\emph{float} & 4 bytes & 10 bytes & 20,8 ms & 25,0 ms \\
+dados & 1--64 bytes & 7--70 bytes & 14,6--145,8 ms & 18,8--150,0 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Funcionamento da Comunicação}
+\label{sec:funcionamento}
+
+\subsection{Transmissor}
+
+O transmissor exibe um menu no Monitor Serial com as opções de envio de \emph{byte}, \emph{word}, \emph{float} e dados de tamanho variável. Para os tipos numéricos, o usuário digita o valor, que é validado quanto ao formato e ao intervalo permitido. Para dados de tamanho variável, o usuário informa primeiro o tamanho (1 a 64 bytes) e depois a mensagem; mensagens menores que o tamanho informado são recusadas, e mensagens maiores são truncadas com aviso. Em seguida, o usuário escolhe se deseja simular alguma falha (Seção~\ref{sec:testes}). A leitura das entradas funciona com ou sem terminador de linha configurado no Monitor Serial.
+
+Após a coleta dos dados, a transmissão segue os passos abaixo:
+
+\begin{enumerate}
+  \item A função da API converte o valor em \emph{payload} e solicita o envio à camada de enlace, que incrementa o número de sequência;
+  \item Antes de cada tentativa, os bytes pendentes na porta serial são descartados, eliminando respostas atrasadas de tentativas anteriores;
+  \item O quadro é montado, o CRC-8 é calculado e todos os bytes são transmitidos;
+  \item O transmissor aguarda os dois bytes da resposta por até 500~ms;
+  \item Se receber um ACK com o número de sequência atual, a mensagem é considerada entregue e a função retorna \texttt{true};
+  \item Se receber um NACK, uma resposta inválida ou nenhuma resposta, aguarda 200~ms e retransmite o mesmo quadro, com o mesmo número de sequência;
+  \item Após três tentativas sem confirmação, a função retorna \texttt{false}.
+\end{enumerate}
+
+Ao final, o resultado é apresentado ao usuário como \texttt{[RESULTADO] SUCESSO} ou \texttt{[RESULTADO] FALHA}, precedido pelo registro de cada tentativa e da resposta obtida.
+
+\subsection{Receptor}
+
+O receptor monitora continuamente a porta serial. Bytes que não correspondem ao início de um quadro são ignorados, o que permite ressincronizar a comunicação após ruídos ou quadros incompletos. Ao encontrar o byte \texttt{0xAA}, o receptor lê o quadro byte a byte, aguardando no máximo 50~ms pela chegada de cada byte, e aplica as verificações da Tabela~\ref{tab:validacao} na ordem apresentada.
+
+\begin{table}[!htb]
+\centering
+\caption{Verificações realizadas pelo receptor para cada quadro.}
+\label{tab:validacao}
+\small
+\begin{tabularx}{\linewidth}{cLL}
+\toprule
+\textbf{Etapa} & \textbf{Verificação} & \textbf{Ação em caso de falha} \\
+\midrule
+1 & Byte lido é o início de quadro (\texttt{0xAA}) & Byte ignorado \\
+2 & Cabeçalho (tipo, sequência e tamanho) chega completo & NACK: ``quadro incompleto'' \\
+3 & Tipo conhecido e tamanho compatível com o tipo & NACK: ``tipo desconhecido ou tamanho incompatível'' \\
+4 & \emph{Payload} e CRC chegam completos & NACK: ``quadro incompleto'' \\
+5 & CRC-8 calculado igual ao CRC-8 recebido & NACK: ``CRC inválido'' \\
+6 & Número de sequência diferente da última mensagem aceita & ACK reenviado e dados descartados (duplicata) \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A verificação do tipo e do tamanho ocorre antes da leitura do \emph{payload}, o que impede que um campo de tamanho corrompido provoque a escrita além do \emph{buffer} de 64 bytes. Antes de enviar um NACK, o receptor descarta os bytes restantes do quadro inválido até que a linha permaneça 50~ms em silêncio, evitando que esses bytes sejam interpretados como um novo quadro.
+
+Quando todas as verificações são satisfeitas, o receptor envia o ACK \emph{antes} de apresentar os dados no Monitor Serial. Essa ordem é importante porque a escrita de uma mensagem longa no Monitor Serial a 4800 bps pode bloquear o programa por dezenas de milissegundos, tempo que seria descontado do \emph{timeout} do transmissor. Os dados são apresentados de acordo com o tipo identificado, como nos exemplos:
+
+\begin{small}
+\begin{verbatim}
+[RX] seq 104 | BYTE: 150
+[RX] seq 105 | WORD: 1024
+[RX] seq 117 | FLOAT: 3.1415
+[RX] seq 107 | DATA (3 bytes): IoT
+\end{verbatim}
+\end{small}
+
+\section{Mecanismo de Confiabilidade}
+\label{sec:confiabilidade}
+
+\subsection{Detecção de erros com CRC-8}
+
+A integridade de cada quadro é verificada por um CRC de 8 bits com polinômio gerador $x^8 + x^2 + x + 1$ (\texttt{0x07}), valor inicial zero e sem reflexão de bits, variante conhecida como CRC-8/SMBUS. O cálculo abrange todos os campos do quadro exceto o byte de início, e é refeito pelo receptor e comparado ao valor recebido.
+
+A Tabela~\ref{tab:crc} compara o CRC-8 com um \emph{checksum} por XOR de todos os bytes, alternativa de mesmo custo (1 byte) avaliada no início do projeto. Os erros de dois bits foram avaliados por enumeração exaustiva de todos os padrões possíveis em cada tamanho de quadro; as trocas, por enumeração de todos os pares de bytes adjacentes distintos em quadros de exemplo. Ambos os métodos detectam todos os erros com número ímpar de bits e todas as rajadas de até 8 bits, e, com corrupção aleatória intensa, ambos deixam passar cerca de 1 em cada 256 quadros. A diferença está nos erros de padrão par, como dois bits invertidos na mesma posição de bytes diferentes, que o XOR não detecta.
+
+\begin{table}[!htb]
+\centering
+\caption{Erros não detectados: CRC-8 versus \emph{checksum} XOR.}
+\label{tab:crc}
+\small
+\begin{tabularx}{\linewidth}{Lcccc}
+\toprule
+& \multicolumn{2}{c}{\textbf{Erros de 2 bits}} & \multicolumn{2}{c}{\textbf{Troca de bytes adjacentes}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+\textbf{Quadro} & \textbf{CRC-8} & \textbf{XOR} & \textbf{CRC-8} & \textbf{XOR} \\
+\midrule
+\emph{byte} ($N = 1$) & 0\% & 10,6\% & 0 de 4 & 4 de 4 \\
+\emph{word} ($N = 2$) & 0\% & 10,9\% & 0 de 5 & 5 de 5 \\
+\emph{float} ($N = 4$) & 0\% & 11,3\% & 0 de 7 & 7 de 7 \\
+dados ($N = 64$) & 0,62\% & 12,3\% & 1 de 67 & 67 de 67 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+O CRC-8 utilizado detecta todos os erros de até três bits enquanto os dados verificados não ultrapassam 119 bits (cabeçalho de 4 bytes e \emph{payload} de até 10 bytes), resultado coerente com a análise de polinômios de CRC para redes embarcadas apresentada em~\cite{koopman2004}. Isso cobre integralmente os tipos \emph{byte}, \emph{word} e \emph{float}. Para mensagens maiores essa garantia deixa de ser absoluta, mas a taxa de erros não detectados permanece cerca de 20 vezes menor que a do XOR.
+
+\subsection{Retransmissão automática (\emph{Stop-and-Wait} ARQ)}
+
+A recuperação de falhas utiliza o esquema de repetição automática \emph{Stop-and-Wait}~\cite{tanenbaum2011}: o transmissor envia um quadro e aguarda sua confirmação antes de enviar o próximo. A retransmissão é disparada por três eventos: recebimento de NACK, que indica que o receptor detectou um erro e solicita nova transmissão; \emph{timeout}, quando nenhuma resposta chega em 500~ms; e resposta inválida, quando o código ou o número de sequência não conferem. O limite de três tentativas garante que o transmissor não fique bloqueado indefinidamente quando o receptor está ausente. A Tabela~\ref{tab:falhas} resume como cada tipo de falha é detectado e tratado.
+
+\begin{table}[!htb]
+\centering
+\caption{Falhas de comunicação e reação do protocolo.}
+\label{tab:falhas}
+\small
+\begin{tabularx}{\linewidth}{LLL}
+\toprule
+\textbf{Falha} & \textbf{Detecção} & \textbf{Reação} \\
+\midrule
+Bits corrompidos no quadro & CRC-8 divergente ou cabeçalho inválido & NACK e retransmissão \\
+Byte perdido no meio do quadro & Intervalo entre bytes excedido, cabeçalho inválido ou CRC & NACK e retransmissão \\
+Quadro inteiro perdido ou byte de início corrompido & Ausência de resposta em 500~ms & Retransmissão por \emph{timeout} \\
+ACK ou NACK perdido & Ausência de resposta em 500~ms & Retransmissão; receptor descarta a duplicata \\
+ACK corrompido & Código ou sequência não conferem & Retransmissão; receptor descarta a duplicata \\
+Resposta atrasada de tentativa anterior & --- & Descartada antes da nova tentativa \\
+Bytes espúrios na linha & Não formam um quadro válido & Ignorados até o próximo \texttt{0xAA} \\
+Receptor ausente ou desconectado & Três \emph{timeouts} consecutivos & Falha informada ao usuário \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Números de sequência e mensagens duplicadas}
+
+Se o quadro de dados chega corretamente, mas o ACK se perde, o transmissor retransmite uma mensagem que o receptor já processou. Sem tratamento, o dado seria apresentado duas vezes. Para evitar isso, o transmissor atribui um número de sequência a cada nova mensagem e o mantém nas retransmissões. O receptor armazena o número da última mensagem aceita: ao receber um quadro válido com o mesmo número, reenvia o ACK, necessário para liberar o transmissor, mas descarta os dados.
+
+O número de sequência inicial do transmissor é sorteado na inicialização. Assim, caso apenas o transmissor seja reiniciado, a primeira mensagem dificilmente coincidirá com o último número aceito pelo receptor e não será descartada por engano.
+
+\subsection{Limitações conhecidas}
+
+\begin{itemize}
+  \item O esquema \emph{Stop-and-Wait} envia uma mensagem por vez, o que limita a vazão. Esquemas com janela deslizante, como \emph{Go-Back-N}, aumentariam a vazão ao custo de maior complexidade e uso de memória;
+  \item Se todas as confirmações de uma mensagem se perderem, o transmissor informa falha, embora o receptor tenha recebido os dados. Essa ambiguidade é inerente a confirmações por \emph{timeout}, pois o transmissor não distingue a perda do quadro da perda da resposta;
+  \item O byte \texttt{0xAA} pode aparecer dentro do \emph{payload}, pois não há inserção de bytes de escape. Em caso de perda de sincronismo, um falso início de quadro é rejeitado pelas verificações de tamanho, \emph{timeout} e CRC;
+  \item O tamanho máximo de dados variáveis é 64 bytes, valor escolhido considerando a memória RAM de 2~KB do Arduino Uno, na qual os \emph{buffers} das mensagens são alocados;
+  \item As constantes do protocolo são duplicadas nos dois programas, pois cada Arduino é programado com um único arquivo, e devem ser mantidas idênticas.
+\end{itemize}
+
+\section{Decisões de Projeto}
+\label{sec:decisoes}
+
+A Tabela~\ref{tab:decisoes} reúne as principais decisões tomadas durante o desenvolvimento e suas justificativas.
+
+\begin{table}[!htb]
+\centering
+\caption{Principais decisões de projeto.}
+\label{tab:decisoes}
+\small
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{0.3\linewidth}L}
+\toprule
+\textbf{Decisão} & \textbf{Justificativa} \\
+\midrule
+Formato único de quadro para todos os tipos & Um único procedimento de montagem e validação atende a todos os tipos, simplificando o código e os testes \\
+Campo de tamanho com 2 bytes & Compatível com o parâmetro \texttt{uint16\_t size} de \texttt{sendData}; custa 1 byte adicional nos tipos de tamanho fixo \\
+Tipo e tamanho validados em conjunto & Permite ao receptor identificar corretamente o dado e rejeitar quadros incoerentes antes de ler o \emph{payload} \\
+Ordem \emph{big-endian} em todos os campos & Torna a interpretação independente da arquitetura, inclusive para o \emph{float}, serializado pelos seus 32 bits \\
+CRC-8 no lugar de \emph{checksum} XOR & Mesmo custo de 1 byte, com detecção muito superior de erros de padrão par e de troca de bytes (Tabela~\ref{tab:crc}) \\
+\emph{Stop-and-Wait} com ACK e NACK & Simples e com pouco uso de memória; adequado à interação do usuário, que envia uma mensagem por vez. O NACK acelera a recuperação (cerca de 70~ms em quadros curtos, contra 500~ms de \emph{timeout}) \\
+Número de sequência de 8 bits & Evita duplicatas e associa cada resposta à mensagem atual; também facilita o acompanhamento dos registros \\
+ACK enviado antes da impressão & Impede que a escrita no Monitor Serial consuma o \emph{timeout} do transmissor \\
+\emph{Timeout} de resposta de 500~ms & Mais de três vezes o pior caso de quadro e resposta (150~ms), sem tornar a detecção de falhas lenta \\
+\emph{Timeout} entre bytes de 50~ms & Cerca de 24 vezes o tempo de um byte, tolerando atrasos sem demorar a rejeitar quadros incompletos \\
+Taxa de 4800 bps & Taxa moderada, que dá margem de temporização à porta serial implementada em software \\
+Leitura do quadro byte a byte & O quadro máximo (70 bytes) excede o \emph{buffer} de recepção de 64 bytes da \texttt{SoftwareSerial}~\cite{arduino-softwareserial}; consumir os bytes à medida que chegam evita perdas \\
+Simulação de falhas por variável global & Permite demonstrar falhas sem alterar os protótipos exigidos das funções de envio \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Testes Realizados}
+\label{sec:testes}
+
+\subsection{Simulação de falhas no transmissor}
+
+Para demonstrar o comportamento do protocolo diante de falhas, o transmissor oferece, antes de cada envio, as opções da Tabela~\ref{tab:simulacao}. A corrupção inverte um bit do primeiro byte do \emph{payload} sem recalcular o CRC, reproduzindo o efeito de ruído na linha. As perdas são simuladas no próprio transmissor, que deixa de enviar o quadro ou ignora a confirmação recebida. A ausência do receptor pode ser demonstrada desconectando o fio entre as placas.
+
+\begin{table}[!htb]
+\centering
+\caption{Opções de simulação de falhas do transmissor.}
+\label{tab:simulacao}
+\small
+\begin{tabularx}{\linewidth}{clL}
+\toprule
+\textbf{Opção} & \textbf{Falha simulada} & \textbf{Comportamento esperado} \\
+\midrule
+0 & Nenhuma & Entrega na primeira tentativa \\
+1 & Corromper a primeira tentativa & NACK, retransmissão e entrega \\
+2 & Corromper todas as tentativas & Três NACKs e falha definitiva \\
+3 & Perder o quadro na primeira tentativa & \emph{Timeout}, retransmissão e entrega \\
+4 & Perder o ACK na primeira tentativa & Retransmissão, duplicata descartada pelo receptor e entrega \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Ambiente e cenários de teste}
+
+Os testes foram executados em um ambiente de simulação em C++ construído para o trabalho. Nele, os dois programas (\texttt{Transmissor.cpp} e \texttt{Receptor.cpp}) são compilados sem alterações, com implementações simplificadas das bibliotecas do Arduino, e executados simultaneamente, conectados por um canal serial emulado. O canal reproduz o tempo de transmissão de cada byte a 4800 bps (cerca de 2,08~ms) e a capacidade dos \emph{buffers} de recepção do Arduino, além de permitir a injeção de falhas físicas que não dependem do menu: desconexão do receptor, perda de um byte e corrupção da resposta. As entradas do Monitor Serial foram roteirizadas, e os programas foram compilados sem avisos com as opções \texttt{-Wall} e \texttt{-Wextra} do GCC.
+
+Os cenários cobrem os quatro tipos de dados, valores nos limites dos intervalos, todas as opções da Tabela~\ref{tab:simulacao}, falhas físicas na linha e entradas inválidas do usuário. Os mesmos cenários baseados no menu podem ser reproduzidos no Tinkercad ou nas placas físicas.
+
+\section{Resultados Obtidos}
+\label{sec:resultados}
+
+A Tabela~\ref{tab:resultados} apresenta os resultados dos cenários de transmissão. O tempo total corresponde ao intervalo entre o início da primeira tentativa e o resultado final no transmissor. Todos os cenários apresentaram o comportamento esperado.
+
+\begin{table}[!htb]
+\centering
+\caption{Resultados dos cenários de transmissão.}
+\label{tab:resultados}
+\small
+\begin{tabularx}{\linewidth}{cLLcc}
+\toprule
+\textbf{\#} & \textbf{Cenário} & \textbf{Comportamento observado} & \textbf{Resultado} & \textbf{Tempo} \\
+\midrule
+1 & \emph{Byte} 150, sem falha & ACK na 1.ª tentativa; RX exibe 150 & Sucesso & 21 ms \\
+2 & \emph{Float} 3,1415 e $-12{,}5$, sem falha & ACK na 1.ª tentativa; RX exibe 3.1415 e -12.5000 & Sucesso & 27 ms \\
+3 & \emph{Byte} 170 (\texttt{0xAA} no \emph{payload}) & ACK na 1.ª tentativa; RX exibe 170 & Sucesso & 20 ms \\
+4 & \emph{Word} 65535 (valor máximo) & ACK na 1.ª tentativa; RX exibe 65535 & Sucesso & 23 ms \\
+5 & \emph{Word} 1024, corromper a 1.ª (opção 1) & RX: CRC inválido e NACK; ACK na 2.ª tentativa & Sucesso & 295 ms \\
+6 & \emph{Float} 3,1415, corromper todas (opção 2) & Três NACKs; RX não exibe dados & Falha & 631 ms \\
+7 & Dados ``IoT'', perder o quadro (opção 3) & \emph{Timeout} na 1.ª; ACK na 2.ª tentativa & Sucesso & 726 ms \\
+8 & Dados com 64 bytes, perder o ACK (opção 4) & ACK ignorado; na 2.ª tentativa RX reconhece a duplicata e exibe a mensagem uma única vez & Sucesso & 517 ms \\
+9 & Receptor desconectado & Três \emph{timeouts} & Falha & 1948 ms \\
+10 & Byte perdido no meio de um quadro de 10 bytes & RX: tamanho incompatível e NACK; ACK na 2.ª tentativa & Sucesso & 330 ms \\
+11 & ACK corrompido na linha (\emph{word} 42) & Resposta inválida; na 2.ª tentativa RX reconhece a duplicata & Sucesso & 246 ms \\
+12 & Bytes espúrios com \texttt{0xAA} antes de um quadro & RX rejeita o falso quadro; TX descarta o NACK atrasado e entrega na 1.ª tentativa & Sucesso & 23 ms \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Os tempos medidos são coerentes com a análise teórica. No cenário~1, o valor de 21~ms se aproxima dos 18,8~ms previstos na Tabela~\ref{tab:tempos}. No cenário~5, a primeira tentativa é rejeitada após cerca de 72~ms (16,7~ms do quadro, 50~ms de descarte e 4,2~ms do NACK), seguidos de 200~ms de espera e de uma nova transmissão bem-sucedida. No cenário~9, o tempo de 1948~ms corresponde a três esperas de 500~ms somadas aos quadros e aos dois intervalos de 200~ms, próximo dos 1944~ms previstos. Esse é o tempo máximo que o usuário aguarda antes de ser informado de uma falha no envio de um \emph{byte}; para dados de 64 bytes, o limite teórico é de cerca de 2,3~s. A comparação entre os cenários~5 e~7 mostra a vantagem do NACK: a recuperação por NACK foi mais de 400~ms mais rápida que a recuperação por \emph{timeout}.
+
+A seguir, os registros dos Monitores Seriais no cenário~5, que demonstra a recuperação após um quadro corrompido:
+
+\begin{small}
+\begin{verbatim}
+Transmissor:
+[TX] Tentativa 1/3 (seq 105)
+[SIMULACAO] Quadro corrompido (1 bit invertido)
+[TX] NACK recebido: receptor detectou erro no quadro
+[TX] Tentativa 2/3 (seq 105)
+[TX] ACK recebido
+[RESULTADO] SUCESSO: mensagem confirmada pelo receptor
+
+Receptor:
+[RX] NACK enviado: CRC invalido
+[RX] seq 105 | WORD: 1024
+\end{verbatim}
+\end{small}
+
+E no cenário~8, no qual a perda do ACK leva a uma retransmissão que o receptor identifica como duplicata (conteúdo da mensagem abreviado):
+
+\begin{small}
+\begin{verbatim}
+Transmissor:
+[TX] Tentativa 1/3 (seq 108)
+[SIMULACAO] ACK perdido na linha (tratado como timeout)
+[TX] Tentativa 2/3 (seq 108)
+[TX] ACK recebido
+[RESULTADO] SUCESSO: mensagem confirmada pelo receptor
+
+Receptor:
+[RX] seq 108 | DATA (64 bytes): ABCDEFGHIJKLMNOPQRSTUVWXYZ[...]
+[RX] seq 108 | duplicata: ACK reenviado e dados descartados
+\end{verbatim}
+\end{small}
+
+As entradas inválidas também foram tratadas corretamente, conforme a Tabela~\ref{tab:entradas}. Em nenhum desses casos houve transmissão de dados incorretos.
+
+\begin{table}[!htb]
+\centering
+\caption{Tratamento de entradas do usuário.}
+\label{tab:entradas}
+\small
+\begin{tabularx}{\linewidth}{LL}
+\toprule
+\textbf{Entrada} & \textbf{Comportamento observado} \\
+\midrule
+Opção de menu 9 & Mensagem de opção inválida e retorno ao menu \\
+\emph{Byte} 300 & Mensagem de valor inválido; nada é transmitido \\
+Tamanho 5 com a mensagem ``IoT'' & Mensagem menor que o tamanho informado; nada é transmitido \\
+Tamanho 3 com a mensagem ``Hello'' & Aviso de truncamento; RX recebe ``Hel'' \\
+Opção de falha ``x'' & Nova solicitação até uma opção válida ser digitada \\
+Monitor Serial sem terminador de linha ou com CR+LF & Entradas interpretadas corretamente nos dois casos \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Conclusão}
+\label{sec:conclusao}
+
+O protocolo desenvolvido transmite dados dos tipos \emph{byte}, \emph{word}, \emph{float} e de tamanho definido pelo usuário entre dois Arduinos, utilizando um formato de quadro único com identificação de tipo, controle de sequência e verificação por CRC-8. O esquema \emph{Stop-and-Wait} com ACK, NACK, \emph{timeout} e limite de tentativas recuperou a comunicação em todos os cenários de falha recuperáveis e informou corretamente as falhas definitivas. A Tabela~\ref{tab:requisitos} relaciona cada requisito do trabalho ao mecanismo que o atende.
+
+\begin{table}[!htb]
+\centering
+\caption{Atendimento aos requisitos do trabalho.}
+\label{tab:requisitos}
+\small
+\begin{tabularx}{\linewidth}{LLc}
+\toprule
+\textbf{Requisito} & \textbf{Como é atendido} & \textbf{Seção} \\
+\midrule
+Comunicação entre dois Arduinos por porta serial & \texttt{SoftwareSerial} nos pinos 10 e 11 a 4800 bps & \ref{sec:protocolo} \\
+Transmitir \emph{byte}, \emph{word} e \emph{float} & \texttt{sendByte}, \texttt{sendWord} e \texttt{sendFloat}, com os protótipos exigidos & \ref{sec:estrutura} \\
+Transmitir dados de tamanho definido pelo usuário & \texttt{sendData} com tamanho de 1 a 64 bytes informado pelo usuário & \ref{sec:estrutura} \\
+Receptor identificar corretamente os dados & Campo Tipo, validação de tamanho e apresentação por tipo & \ref{sec:funcionamento} \\
+Detectar falhas de comunicação & CRC-8, validação do cabeçalho, \emph{timeouts} e números de sequência & \ref{sec:confiabilidade} \\
+Retransmitir mensagens quando necessário & \emph{Stop-and-Wait} ARQ com até três tentativas & \ref{sec:confiabilidade} \\
+Tratar ausência de resposta do receptor & \emph{Timeout} de 500~ms por tentativa & \ref{sec:confiabilidade} \\
+Informar o resultado ao usuário & Registro de cada tentativa e resultado final de sucesso ou falha & \ref{sec:funcionamento} \\
+Demonstrar o comportamento diante de falhas & Menu de simulação de falhas no transmissor & \ref{sec:testes} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Como trabalhos futuros, podem ser avaliados um esquema com janela deslizante para aumentar a vazão, a inserção de bytes de escape para eliminar falsos inícios de quadro e um CRC de 16 bits para ampliar as garantias de detecção em mensagens longas.
+
+\begin{thebibliography}{9}
+
+\bibitem[Arduino 2026]{arduino-softwareserial}
+Arduino (2026).
+\newblock SoftwareSerial Library.
+\newblock Disponível em: \url{https://docs.arduino.cc/learn/built-in-libraries/software-serial/}. Acesso em: set. 2026.
+
+\bibitem[Koopman and Chakravarty 2004]{koopman2004}
+Koopman, P. and Chakravarty, T. (2004).
+\newblock Cyclic redundancy code ({CRC}) polynomial selection for embedded networks.
+\newblock In {\em International Conference on Dependable Systems and Networks (DSN)}, pages 145--154. IEEE.
+
+\bibitem[Tanenbaum and Wetherall 2011]{tanenbaum2011}
+Tanenbaum, A.~S. and Wetherall, D.~J. (2011).
+\newblock {\em Computer Networks}.
+\newblock Pearson, 5th edition.
+
+\end{thebibliography}
+
+\end{document}
