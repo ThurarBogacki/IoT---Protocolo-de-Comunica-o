@@ -334,6 +334,7 @@ O número de sequência inicial do transmissor é sorteado na inicialização. A
 \begin{itemize}
   \item O esquema \emph{Stop-and-Wait} envia uma mensagem por vez, o que limita a vazão. Esquemas com janela deslizante, como \emph{Go-Back-N}, aumentariam a vazão ao custo de maior complexidade e uso de memória;
   \item Se todas as confirmações de uma mensagem se perderem, o transmissor informa falha, embora o receptor tenha recebido os dados. Essa ambiguidade é inerente a confirmações por \emph{timeout}, pois o transmissor não distingue a perda do quadro da perda da resposta;
+  \item A \texttt{SoftwareSerial} amostra os bits por temporização e é sensível a atrasos no atendimento de interrupções. Erros ocasionais de leitura são detectados e corrigidos pelo protocolo, mas cada um consome uma das três tentativas;
   \item O byte \texttt{0xAA} pode aparecer dentro do \emph{payload}, pois não há inserção de bytes de escape. Em caso de perda de sincronismo, um falso início de quadro é rejeitado pelas verificações de tamanho, \emph{timeout} e CRC;
   \item O tamanho máximo de dados variáveis é 64 bytes, valor escolhido considerando a memória RAM de 2~KB do Arduino Uno, na qual os \emph{buffers} das mensagens são alocados;
   \item As constantes do protocolo são duplicadas nos dois programas, pois cada Arduino é programado com um único arquivo, e devem ser mantidas idênticas.
@@ -400,7 +401,7 @@ Para demonstrar o comportamento do protocolo diante de falhas, o transmissor ofe
 
 Os testes foram executados em um ambiente de simulação em C++ construído para o trabalho. Nele, os dois programas (\texttt{Transmissor.cpp} e \texttt{Receptor.cpp}) são compilados sem alterações, com implementações simplificadas das bibliotecas do Arduino, e executados simultaneamente, conectados por um canal serial emulado. O canal reproduz o tempo de transmissão de cada byte a 4800 bps (cerca de 2,08~ms) e a capacidade dos \emph{buffers} de recepção do Arduino, além de permitir a injeção de falhas físicas que não dependem do menu: desconexão do receptor, perda de um byte e corrupção da resposta. As entradas do Monitor Serial foram roteirizadas, e os programas foram compilados sem avisos com as opções \texttt{-Wall} e \texttt{-Wextra} do GCC.
 
-Os cenários cobrem os quatro tipos de dados, valores nos limites dos intervalos, todas as opções da Tabela~\ref{tab:simulacao}, falhas físicas na linha e entradas inválidas do usuário. Os mesmos cenários baseados no menu podem ser reproduzidos no Tinkercad ou nas placas físicas.
+Os cenários cobrem os quatro tipos de dados, valores nos limites dos intervalos, todas as opções da Tabela~\ref{tab:simulacao}, falhas físicas na linha e entradas inválidas do usuário. Os cenários baseados no menu também foram executados no Tinkercad, cujas observações são apresentadas ao final da Seção~\ref{sec:resultados}.
 
 \section{Resultados Obtidos}
 \label{sec:resultados}
@@ -489,6 +490,24 @@ Monitor Serial sem terminador de linha ou com CR+LF & Entradas interpretadas cor
 \bottomrule
 \end{tabularx}
 \end{table}
+
+\subsection*{Execução no Tinkercad}
+
+Os cenários do menu também foram executados no Tinkercad, com os dois Arduinos ligados conforme a Tabela~\ref{tab:ligacao}. Além das falhas simuladas, surgiram erros reais ocasionais na leitura das respostas, que o protocolo detectou e corrigiu. No registro abaixo, ao enviar dados com a opção de perda do ACK, a segunda tentativa recebeu \texttt{0x06 0xDA} em vez de \texttt{0x06 0x5A} (sequência 90):
+
+\begin{small}
+\begin{verbatim}
+[TX] Tentativa 1/3 (seq 90)
+[SIMULACAO] ACK perdido na linha (tratado como timeout)
+[TX] Tentativa 2/3 (seq 90)
+[TX] Resposta invalida do receptor: 0x6 0xDA
+[TX] Tentativa 3/3 (seq 90)
+[TX] ACK recebido
+[RESULTADO] SUCESSO: mensagem confirmada pelo receptor
+\end{verbatim}
+\end{small}
+
+Os valores \texttt{0x5A} (\texttt{01011010}) e \texttt{0xDA} (\texttt{11011010}) diferem apenas no bit mais significativo, que é o último bit de dados transmitido, imediatamente antes do bit de parada (sempre 1). O byte foi amostrado com atraso, e o bit de parada foi lido no lugar do último bit de dados. Esse comportamento é característico de portas seriais implementadas em software, cuja amostragem depende do atendimento imediato das interrupções e da precisão de laços de espera. Como o número de sequência não conferiu, a resposta foi descartada e a mensagem, retransmitida, sendo entregue na terceira tentativa sem que o receptor exibisse os dados duas vezes. O mesmo tipo de ocorrência foi observado com a opção de perda do quadro, também concluída com sucesso na terceira tentativa.
 
 \section{Conclusão}
 \label{sec:conclusao}

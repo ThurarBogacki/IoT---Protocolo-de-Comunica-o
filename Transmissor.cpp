@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include <SoftwareSerial.h>
 
 // ===== Protocolo (manter idêntico no Receptor) =====
@@ -12,9 +11,9 @@ const uint8_t TIPO_DATA = 0x04;
 const uint8_t ACK = 0x06;
 const uint8_t NACK = 0x15;
 const uint16_t TAMANHO_MAX_DATA = 64;
-const long BAUD_RATE = 4800;
+const long BAUD_RATE = 2400;
 
-const uint8_t MAX_TENTATIVAS = 3;
+const uint8_t MAX_TENTATIVAS = 5;
 const unsigned long TIMEOUT_RESPOSTA_MS = 500;
 const unsigned long ESPERA_RETRANSMISSAO_MS = 200;
 const unsigned long TIMEOUT_LINHA_MS = 100;
@@ -77,6 +76,14 @@ void transmitirQuadro(uint8_t tipo, const uint8_t *payload, uint16_t tamanho, bo
   portaSerial.write(crc);
 }
 
+void imprimirHex(uint8_t valor) {
+  Serial.print(F(" 0x"));
+  if (valor < 0x10) {
+    Serial.print('0');
+  }
+  Serial.print(valor, HEX);
+}
+
 // Retorna true somente para um ACK da sequência atual.
 bool aguardarAck(bool simularPerdaAck) {
   uint8_t resposta[2];
@@ -89,10 +96,10 @@ bool aguardarAck(bool simularPerdaAck) {
     return false;
   }
   if (resposta[0] != ACK || resposta[1] != sequencia) {
-    Serial.print(F("[TX] Resposta invalida do receptor: 0x"));
-    Serial.print(resposta[0], HEX);
-    Serial.print(F(" 0x"));
-    Serial.println(resposta[1], HEX);
+    Serial.print(F("[TX] Resposta invalida do receptor:"));
+    imprimirHex(resposta[0]);
+    imprimirHex(resposta[1]);
+    Serial.println();
     return false;
   }
   if (simularPerdaAck) {

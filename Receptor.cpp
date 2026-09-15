@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include <SoftwareSerial.h>
 
 // ===== Protocolo (manter idêntico no Transmissor) =====
@@ -12,7 +11,7 @@ const uint8_t TIPO_DATA = 0x04;
 const uint8_t ACK = 0x06;
 const uint8_t NACK = 0x15;
 const uint16_t TAMANHO_MAX_DATA = 64;
-const long BAUD_RATE = 4800;
+const long BAUD_RATE = 2400;
 
 const unsigned long TIMEOUT_ENTRE_BYTES_MS = 50;
 
