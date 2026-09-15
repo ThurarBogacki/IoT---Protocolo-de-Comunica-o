@@ -89,7 +89,10 @@ bool aguardarAck(bool simularPerdaAck) {
     return false;
   }
   if (resposta[0] != ACK || resposta[1] != sequencia) {
-    Serial.println(F("[TX] Resposta invalida do receptor"));
+    Serial.print(F("[TX] Resposta invalida do receptor: 0x"));
+    Serial.print(resposta[0], HEX);
+    Serial.print(F(" 0x"));
+    Serial.println(resposta[1], HEX);
     return false;
   }
   if (simularPerdaAck) {
@@ -128,6 +131,9 @@ bool enviarQuadro(uint8_t tipo, const uint8_t *payload, uint16_t tamanho) {
       if (corromper) {
         Serial.println(F("[SIMULACAO] Quadro corrompido (1 bit invertido)"));
       }
+      // A SoftwareSerial amostra os bits por temporização: esperar o log sair evita que as
+      // interrupções da Serial nativa atrasem a leitura da resposta
+      Serial.flush();
       transmitirQuadro(tipo, payload, tamanho, corromper);
     }
 

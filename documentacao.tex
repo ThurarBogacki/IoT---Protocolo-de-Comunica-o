@@ -223,7 +223,7 @@ Após a coleta dos dados, a transmissão segue os passos abaixo:
 \begin{enumerate}
   \item A função da API converte o valor em \emph{payload} e solicita o envio à camada de enlace, que incrementa o número de sequência;
   \item Antes de cada tentativa, os bytes pendentes na porta serial são descartados, eliminando respostas atrasadas de tentativas anteriores;
-  \item O quadro é montado, o CRC-8 é calculado e todos os bytes são transmitidos;
+  \item O transmissor aguarda o envio das mensagens pendentes ao Monitor Serial (\texttt{Serial.flush()}); em seguida, o quadro é montado, o CRC-8 é calculado e todos os bytes são transmitidos;
   \item O transmissor aguarda os dois bytes da resposta por até 500~ms;
   \item Se receber um ACK com o número de sequência atual, a mensagem é considerada entregue e a função retorna \texttt{true};
   \item Se receber um NACK, uma resposta inválida ou nenhuma resposta, aguarda 200~ms e retransmite o mesmo quadro, com o mesmo número de sequência;
@@ -364,6 +364,7 @@ ACK enviado antes da impressão & Impede que a escrita no Monitor Serial consuma
 \emph{Timeout} de resposta de 500~ms & Mais de três vezes o pior caso de quadro e resposta (150~ms), sem tornar a detecção de falhas lenta \\
 \emph{Timeout} entre bytes de 50~ms & Cerca de 24 vezes o tempo de um byte, tolerando atrasos sem demorar a rejeitar quadros incompletos \\
 Taxa de 4800 bps & Taxa moderada, que dá margem de temporização à porta serial implementada em software \\
+Monitor Serial esvaziado antes de cada transmissão & A \texttt{SoftwareSerial} amostra os bits por temporização; evitar interrupções da porta serial nativa durante a troca de quadros reduz erros na leitura da resposta \\
 Leitura do quadro byte a byte & O quadro máximo (70 bytes) excede o \emph{buffer} de recepção de 64 bytes da \texttt{SoftwareSerial}~\cite{arduino-softwareserial}; consumir os bytes à medida que chegam evita perdas \\
 Simulação de falhas por variável global & Permite demonstrar falhas sem alterar os protótipos exigidos das funções de envio \\
 \bottomrule
